@@ -40,24 +40,27 @@ class Notification(Cog_Extension):
         account_used=[app_commands.Choice(name=account_name, value=account_name) for account_name, _ in get_accounts().items()]
     )
     @app_commands.rename(enable_type='type')
-    async def notifier(self, itn: discord.Interaction, username: str, channel: discord.TextChannel, mention: discord.Role = None, enable_type: str = '11', media_type: str = '11', account_used: str = list(get_accounts().keys())[0]):
-        """Add a twitter user to specific channel on your server.
-
-        Parameters
-        -----------
-        username: str
-            The username of the twitter user you want to turn on notifications for.
-        channel: discord.TextChannel
-            The channel to which the bot delivers notifications.
-        mention: discord.Role
-            The role to mention when notifying.
-        enable_type: str
-            Whether to enable notifications for retweets & quotes.
-        media_type: str
-            Whether to enable notifications for All Tweets, Tweets with Media, or Tweets without Media Only.
-        account_used: str
-            The account used to deliver notifications.
-        """
+    @app_commands.describe(
+        username="Twitter username to track",
+        channel="Channel where notifications are sent",
+        mention="Role to mention in the notification",
+        enable_type="Tweet/Retweet/Quote filtering",
+        media_type="Media presence filter",
+        account_used="Twitter session to use",
+        force_everyone="Mention @everyone when tweet matches keywords"
+    )
+    async def notifier(
+        self,
+        itn: discord.Interaction,
+        username: str,
+        channel: discord.TextChannel,
+        mention: discord.Role = None,
+        enable_type: str = '11',
+        media_type: str = '11',
+        account_used: str = list(get_accounts().keys())[0],
+        force_everyone: bool = False,
+    ):
+        """Add a twitter user to specific channel on your server."""
 
         await itn.response.defer(ephemeral=True)
 
@@ -81,13 +84,13 @@ class Notification(Cog_Extension):
                         except Exception:
                             await itn.followup.send(f'user {username} not found', ephemeral=True)
                             return
-                        
+
                         if match_user is None:
                             async with lock:
                                 await db.execute('BEGIN')
                                 await cursor.execute('INSERT INTO user (id, username, lastest_tweet, client_used) VALUES (?, ?, ?, ?)', (str(new_user.id), username, get_utcnow(), account_used))
                                 await cursor.execute('INSERT OR IGNORE INTO channel VALUES (?, ?)', (str(channel.id), server_id))
-                                await cursor.execute('INSERT INTO notification (user_id, channel_id, role_id, enable_type, enable_media_type) VALUES (?, ?, ?, ?, ?)', (str(new_user.id), str(channel.id), roleID, enable_type, media_type))
+                                await cursor.execute('INSERT INTO notification (user_id, channel_id, role_id, enable_type, enable_media_type, force_everyone) VALUES (?, ?, ?, ?, ?, ?)', (str(new_user.id), str(channel.id), roleID, enable_type, media_type, int(force_everyone)))
                                 await db.commit()
                         else:
                             is_changed_client = False
@@ -115,7 +118,7 @@ class Notification(Cog_Extension):
                                 if is_changed_client:
                                     await cursor.execute('REPLACE INTO user (client_used) VALUES (?) WHERE id = ?', (account_used, match_user['id']))
                                 await cursor.execute('INSERT OR IGNORE INTO channel VALUES (?, ?)', (str(channel.id), server_id))
-                                await cursor.execute('REPLACE INTO notification (user_id, channel_id, role_id, enable_type, enable_media_type) VALUES (?, ?, ?, ?, ?)', (match_user['id'], str(channel.id), roleID, enable_type, media_type))
+                                await cursor.execute('REPLACE INTO notification (user_id, channel_id, role_id, enable_type, enable_media_type, force_everyone) VALUES (?, ?, ?, ?, ?, ?)', (match_user['id'], str(channel.id), roleID, enable_type, media_type, int(force_everyone)))
                                 await cursor.execute('UPDATE user SET enabled = 1 WHERE id = ?', (match_user['id'],))
                                 await db.commit()
 
@@ -130,7 +133,7 @@ class Notification(Cog_Extension):
                         async with lock:
                             await db.execute('BEGIN')
                             await cursor.execute('INSERT OR IGNORE INTO channel VALUES (?, ?)', (str(channel.id), server_id))
-                            await cursor.execute('REPLACE INTO notification (user_id, channel_id, role_id, enable_type, enable_media_type) VALUES (?, ?, ?, ?, ?)', (match_user['id'], str(channel.id), roleID, enable_type, media_type))
+                            await cursor.execute('REPLACE INTO notification (user_id, channel_id, role_id, enable_type, enable_media_type, force_everyone) VALUES (?, ?, ?, ?, ?, ?)', (match_user['id'], str(channel.id), roleID, enable_type, media_type, int(force_everyone)))
                             await db.commit()
                 except Exception as e:
                     log.error(f'an error occurred while adding notifier: {e}')

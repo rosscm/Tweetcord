@@ -20,6 +20,12 @@ from src.db_function.readonly_db import connect_readonly
 EMBED_TYPE = configs['embed']['type'] if configs['embed']['type'] in ['built_in', 'fx_twitter'] else 'built_in'
 DOMAIN_NAME = configs['embed']['fx_twitter']['domain_name'] if configs['embed']['fx_twitter']['domain_name'] in ['fxtwitter', 'fixupx'] else 'fxtwitter'
 
+TRIGGER_KEYWORDS = configs.get("keywords_triggering_everyone", ["costco", "queue"])
+FORCE_EVERYONE_DEFAULT = configs.get("force_everyone_default", False)
+
+def should_ping_everyone(text: str) -> bool:
+    return any(keyword.lower() in text.lower() for keyword in TRIGGER_KEYWORDS)
+
 log = setup_logger(__name__)
 lock = get_lock()
 
@@ -47,7 +53,7 @@ class AccountTracker():
                     else:
                         log.error(f"Persistent authentication failure for account {account_name}")
                         raise
-        
+
         for account_name, account_token in self.accounts_data.items():
             try:
                 app = await authenticate_account(account_name, account_token)
@@ -70,7 +76,7 @@ class AccountTracker():
             lastest_tweets = await get_tweets(self.tweets[client_used], username)
             if lastest_tweets is None:
                 continue
-            
+
             async with aiosqlite.connect(self.db_path) as db:
                 db.row_factory = aiosqlite.Row
                 async with db.cursor() as cursor:
@@ -83,7 +89,7 @@ class AccountTracker():
                     for tweet in lastest_tweets:
                         log.info(f'find a new tweet from {username}')
                         url = re.sub('twitter', DOMAIN_NAME, tweet.url) if EMBED_TYPE == 'fx_twitter' else tweet.url
-                        
+
                         view, create_view = None, False
                         if bool(tweet.media) and tweet.media[0].type == 'video' and EMBED_TYPE == 'built_in' and configs['embed']['built_in']['video_link_button']:
                             create_view = True
@@ -95,7 +101,7 @@ class AccountTracker():
                         if create_view:
                             view = discord.ui.View()
                             view.add_item(discord.ui.Button(label=button_label, style=discord.ButtonStyle.link, url=button_url))
-                        
+
                         await cursor.execute('SELECT * FROM notification WHERE user_id = ? AND enabled = 1', (user['id'],))
                         notifications = await cursor.fetchall()
                         for data in notifications:
@@ -103,10 +109,15 @@ class AccountTracker():
                             if channel is not None and is_match_type(tweet, data['enable_type']) and is_match_media_type(tweet, data['enable_media_type']):
                                 try:
                                     mention = f"{channel.guild.get_role(int(data['role_id'])).mention} " if data['role_id'] else ''
+                                    if data.get("force_everyone", 0) and should_ping_everyone(tweet.rawContent):
+                                        mention = "@everyone "
+
                                     author, action = tweet.author.name, get_action(tweet)
-                                    
-                                    if not data['customized_msg']: msg = configs['default_message']
-                                    else: msg = re.sub(r":(\w+):", lambda match: replace_emoji(match, channel.guild), data['customized_msg']) if configs['emoji_auto_format'] else data['customized_msg']
+
+                                    if not data['customized_msg']:
+                                        msg = configs['default_message']
+                                    else:
+                                        msg = re.sub(r":(\w+):", lambda match: replace_emoji(match, channel.guild), data['customized_msg']) if configs['emoji_auto_format'] else data['customized_msg']
                                     msg = msg.format(mention=mention, author=author, action=action, url=url)
 
                                     if EMBED_TYPE == 'fx_twitter':
