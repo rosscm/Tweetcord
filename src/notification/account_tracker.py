@@ -109,7 +109,7 @@ class AccountTracker():
                             if channel is not None and is_match_type(tweet, data['enable_type']) and is_match_media_type(tweet, data['enable_media_type']):
                                 try:
                                     mention = f"{channel.guild.get_role(int(data['role_id'])).mention} " if data['role_id'] else ''
-                                    if data.get("force_everyone", 0) and should_ping_everyone(tweet.rawContent):
+                                    if ("force_everyone" in data and data["force_everyone"]) and should_ping_everyone(tweet.rawContent):
                                         mention = "@everyone "
 
                                     author, action = tweet.author.name, get_action(tweet)
